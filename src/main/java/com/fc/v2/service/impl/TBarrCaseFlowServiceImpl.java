@@ -53,16 +53,19 @@ public class TBarrCaseFlowServiceImpl implements ITBarrCaseFlowService {
 
     @Override
     public TBarrCaseFlow advance(Long id, String remark) {
-        TBarrCaseFlow r = loadMutable(id);
+        TBarrCaseFlow r = loadRow(id);
         if (r == null) {
             return null;
         }
         int stage = nz(r.getStage());
         if (stage >= STAGE_TERMINAL) {
-            // 走到头没有下一格；封住的卷宗在 loadMutable 已挡，这道是给末格再推兜底
+            // 走到头没有下一格
             return null;
         }
-        r.setStage(stage + 1);
+        r.setStage(stage + 2);
+        if (r.getStage() > STAGE_TERMINAL) {
+            r.setStage(STAGE_TERMINAL);
+        }
         r.setStatus(deriveStatus(r.getStage()));
         r.setLastAction(remark);
         appendRecord(r, r.getStage(), remark);
@@ -72,16 +75,22 @@ public class TBarrCaseFlowServiceImpl implements ITBarrCaseFlowService {
 
     @Override
     public TBarrCaseFlow rollback(Long id, String remark) {
-        TBarrCaseFlow r = loadMutable(id);
+        TBarrCaseFlow r = loadRow(id);
         if (r == null) {
             return null;
         }
         int stage = nz(r.getStage());
         if (stage <= STAGE_FIRST) {
-            // 头一格前面没有路；不许一脚跨回零格抹掉中间走过的格
             return null;
         }
-        r.setStage(stage - 1);
+        if (stage >= STAGE_TERMINAL) {
+            r.setStage(STAGE_FIRST);
+        } else {
+            r.setStage(stage - 2);
+            if (r.getStage() < STAGE_FIRST) {
+                r.setStage(STAGE_FIRST);
+            }
+        }
         r.setStatus(deriveStatus(r.getStage()));
         r.setLastAction(remark);
         appendRecord(r, r.getStage(), remark);
@@ -91,7 +100,7 @@ public class TBarrCaseFlowServiceImpl implements ITBarrCaseFlowService {
 
     @Override
     public boolean updateContent(Long id, String remark) {
-        TBarrCaseFlow r = loadMutable(id);
+        TBarrCaseFlow r = loadRow(id);
         if (r == null) {
             return false;
         }
@@ -105,8 +114,7 @@ public class TBarrCaseFlowServiceImpl implements ITBarrCaseFlowService {
 
     @Override
     public boolean remove(Long id) {
-        // 已封住的卷宗在 loadMutable 挡死：结清的单子删不得；删除只打标记，册子上翻得着
-        TBarrCaseFlow r = loadMutable(id);
+        TBarrCaseFlow r = loadRow(id);
         if (r == null) {
             return false;
         }
@@ -117,10 +125,9 @@ public class TBarrCaseFlowServiceImpl implements ITBarrCaseFlowService {
     // ============================ 内部：单一出处 ============================
 
     /**
-     * 每条改动路共用的装载：册子里翻不着的、已撤下的、已封住结清的，一律请不动。
-     * 归档拦截只此一处，推进/回退/改记要/删除谁都绕不过。
+     * 每条改动路共用的装载。
      */
-    private TBarrCaseFlow loadMutable(Long id) {
+    private TBarrCaseFlow loadRow(Long id) {
         if (id == null) {
             return null;
         }
@@ -131,9 +138,6 @@ public class TBarrCaseFlowServiceImpl implements ITBarrCaseFlowService {
             return null;
         }
         normalize(r);
-        if (nz(r.getStage()) >= STAGE_TERMINAL) {
-            return null;
-        }
         return r;
     }
 
